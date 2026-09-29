@@ -31,6 +31,11 @@ function splitBySize(text, maxChars) { return splitEven(text, Math.max(1, Math.c
 
 // Plan the job without calling anything: used for the pre-generation estimate.
 export function planJob(srcLen, cfg, llm) {
+  if (LLM_PROVIDERS[llm.provider]?.manual) {
+    const words = cfg.durationMin * WORDS_PER_MIN;
+    return { segments: 1, needNotes: false, notesCalls: 0, planCalls: 0, segCalls: 1, calls: 1,
+      inTok: Math.round(srcLen * TOKENS_PER_CHAR + OVERHEAD_TOK), outTok: Math.round(words * 1.45 + 60), targetWords: words };
+  }
   const segs = segmentCount(cfg.durationMin);
   const budget = budgetChars(llm);
   const needNotes = srcLen > budget;
@@ -114,6 +119,19 @@ export async function generateScript(sourceText, meta, cfg, llm, hooks = {}, sig
   const bible = showBible(cfg);
   const call = (prompt, extra = {}) => complete({ ...llm, prompt, signal, onStatus, ...extra });
   let done = 0; const tick = () => onProgress(++done, job.calls);
+
+  // Copy & paste mode: one self-contained prompt for the whole episode, pasted into the user's own chat AI.
+  if (LLM_PROVIDERS[llm.provider]?.manual) {
+    onStatus('Waiting for your AI\'s reply');
+    const prompt = `${bible}\n\n${RULES(names)}\n\nWrite the COMPLETE episode in one go: open with a quick welcome and hook (the lead speaker names the episode), teach the material below in a natural order, then wrap up and sign off.\nLENGTH: about ${job.targetWords} words of dialogue (roughly ${Math.max(6, Math.round(job.targetWords / 45))} turns). Length matters because it sets the episode duration, so do not stop early or summarize.\nFORMAT: the very first line is "TITLE: <a catchy but clear episode title>". Every line after that is dialogue in "Name: text" form. Nothing else: no preamble, no closing remarks, no code block.\n\nSOURCE MATERIAL (${meta.label || 'textbook'}):\n"""${sourceText}"""\n\nNow write the whole script.`;
+    const r = await call(prompt, { kind: 'segment', check: (t) => parseScript(t, cfg.speakers).length });
+    const title = r.text.match(/^\s*\**\s*title\s*\**\s*:\s*(.+)$/im)?.[1].replace(/[*"]/g, '').trim() || meta.title || 'Study Session';
+    const lines = parseScript(r.text, cfg.speakers);
+    if (!lines.length) throw new Error(`The pasted reply did not contain dialogue in "Name: text" form (speaker names must be ${names.join(', ')}).`);
+    lines[0].segment = title;
+    onLines(lines); tick();
+    return { title, plan: { title, segments: [{ title, points: [] }] }, lines, words: lines.reduce((a, l) => a + wc(l.text), 0) };
+  }
 
   // 1) Condense source if it doesn't fit the model's input budget.
   const chunks = splitEven(sourceText, job.segments);

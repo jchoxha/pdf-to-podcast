@@ -13,6 +13,11 @@ export const LLM_PROVIDERS = {
     defaultModel: 'gemini-3.8-flash', models: ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'],
     needsKey: true, maxInputTokens: 400000, minGapMs: 6500,
   },
+  manual: {
+    label: 'Your own AI (copy & paste)', free: 'Free with any chat AI you already use: Claude, ChatGPT, Gemini...',
+    chatUrl: 'https://claude.ai/new', defaultModel: '', models: [],
+    needsKey: false, maxInputTokens: 150000, minGapMs: 0, manual: true,
+  },
   groq: {
     label: 'Groq', free: 'Free tier (tight per-minute token limits)',
     keyUrl: 'https://console.groq.com/keys', usageUrl: 'https://console.groq.com/settings/limits',
@@ -107,7 +112,7 @@ export const DEFAULT_LIMITS = {
 
 export const SERVICE_LABELS = {
   'llm:gemini': 'Gemini (script writing)', 'llm:groq': 'Groq', 'llm:openrouter': 'OpenRouter', 'llm:anthropic': 'Anthropic API',
-  'llm:custom': 'Custom / local LLM', 'llm:claudeai': 'Claude (claude.ai plan)',
+  'llm:custom': 'Custom / local LLM', 'llm:claudeai': 'Claude (claude.ai plan)', 'llm:manual': 'Your own AI (copy & paste)',
   'tts:gemini': 'Gemini TTS', 'tts:azure': 'Azure neural TTS', 'tts:kokoro': 'Kokoro (in browser)',
   'tts:google:Chirp3-HD': 'Google TTS · Chirp 3 HD', 'tts:google:Neural2': 'Google TTS · Neural2', 'tts:google:Studio': 'Google TTS · Studio',
   'tts:google:WaveNet': 'Google TTS · WaveNet', 'tts:google:Standard': 'Google TTS · Standard',

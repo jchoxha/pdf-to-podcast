@@ -1,6 +1,7 @@
 // Script-writer providers. Every call is recorded in the usage ledger.
 import { LLM_PROVIDERS, TOKENS_PER_CHAR } from './config.js';
 import { record, setLive, parseGeminiQuota } from './usage.js';
+import { h } from './ui.js';
 
 export class QuotaError extends Error { constructor(msg, info) { super(msg); this.name = 'QuotaError'; this.info = info; } }
 const sleep = (ms, signal) => new Promise((res, rej) => { const t = setTimeout(res, ms); signal?.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
@@ -71,9 +72,52 @@ function readGroqHeaders(res) {
     limitTokensMin: +h('x-ratelimit-limit-tokens'), remainingTokensMin: +h('x-ratelimit-remaining-tokens'), resetRequests: h('x-ratelimit-reset-requests') });
 }
 
-async function callProvider({ provider, model, key, base, system, prompt, json, maxTokens = 8192, temperature = 0.9, signal, onText }) {
+// Copy & paste mode: show the prompt, let the user run it in their own chat AI, and wait for the pasted reply.
+// check(text) -> number of dialogue lines recognised, shown live so a bad paste is obvious before continuing.
+function askUser(prompt, { chatUrl, check, signal }) {
+  return new Promise((resolve, reject) => {
+    const est = (s) => Math.round(s.length * TOKENS_PER_CHAR);
+    const finish = (fn) => { signal?.removeEventListener('abort', onAbort); m.remove(); fn(); };
+    const cancel = () => finish(() => reject(new DOMException('Aborted', 'AbortError')));
+    const onAbort = () => cancel();
+    const promptBox = h('textarea', { rows: 7, readonly: true, value: prompt, style: { width: '100%', fontSize: '12px' } });
+    const copyBtn = h('button', { class: 'btn primary', onclick: async () => {
+      try { await navigator.clipboard.writeText(prompt); } catch { promptBox.select(); document.execCommand('copy'); }
+      copyBtn.textContent = 'Copied'; setTimeout(() => { copyBtn.textContent = 'Copy prompt'; }, 2000);
+    } }, 'Copy prompt');
+    const status = h('span', { class: 'small muted' }, 'Nothing pasted yet.');
+    const useBtn = h('button', { class: 'btn primary', disabled: true, onclick: () => finish(() => resolve(replyBox.value)) }, 'Use this script');
+    const replyBox = h('textarea', { rows: 9, placeholder: 'Paste the AI\'s full reply here...', style: { width: '100%' }, oninput: () => {
+      const t = replyBox.value.trim(); const n = t && check ? check(t) : 0;
+      useBtn.disabled = !t;
+      status.textContent = !t ? 'Nothing pasted yet.' : check ? (n ? `${n} dialogue lines recognised.` : 'No "Name: text" dialogue lines recognised yet. Check the speaker names match.') : `${t.length.toLocaleString()} characters pasted.`;
+      status.className = 'small' + (check && t && !n ? '' : ' muted'); status.style.color = check && t && !n ? 'var(--warn)' : '';
+    } });
+    const m = h('div', { class: 'modal' },
+      h('div', { class: 'box', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Write the script with your own AI' },
+        h('div', { class: 'row between' }, h('h2', { style: { margin: 0, fontSize: '18px' } }, 'Write the script with your own AI'), h('button', { class: 'btn ghost small', onclick: cancel, 'aria-label': 'Cancel' }, 'Cancel')),
+        h('p', { class: 'small muted' }, `1. Copy the prompt (~${est(prompt).toLocaleString()} tokens) and paste it into a new chat in Claude, ChatGPT, Gemini or any other AI. 2. Paste its whole reply below. If the reply gets cut off, ask it to "continue" and paste both parts.`),
+        promptBox,
+        h('div', { class: 'row', style: { marginTop: '8px' } }, copyBtn, chatUrl ? h('a', { class: 'btn', href: chatUrl, target: '_blank', rel: 'noopener' }, 'Open Claude') : null),
+        h('h3', { style: { marginTop: '16px' } }, 'Paste the reply'),
+        replyBox,
+        h('div', { class: 'row', style: { marginTop: '8px' } }, status, h('span', { class: 'spacer' }), useBtn)));
+    signal?.addEventListener('abort', onAbort, { once: true });
+    document.body.append(m);
+    promptBox.scrollTop = 0;
+  });
+}
+
+async function callProvider({ provider, model, key, base, system, prompt, json, maxTokens = 8192, temperature = 0.9, signal, onText, check }) {
   const P = LLM_PROVIDERS[provider];
   if (P.needsKey && !key) throw new Error(`Add your ${P.label} API key in Settings.`);
+
+  if (P.manual) {
+    const full = (system ? system + '\n\n' : '') + prompt;
+    const text = await askUser(full, { chatUrl: P.chatUrl, check, signal });
+    const est = (s) => Math.round(s.length * TOKENS_PER_CHAR);
+    return { text, truncated: false, inTok: est(full), outTok: est(text), estimated: true };
+  }
 
   if (provider === 'gemini') {
     const body = {
@@ -147,7 +191,7 @@ export async function listModels(provider, key, base) {
     if (!res.ok) throw await httpError(res, provider);
     return ((await res.json()).data || []).map((m) => m.id);
   }
-  if (provider === 'claudeai') return P.models;
+  if (provider === 'claudeai' || P.manual) return P.models;
   const res = await fetch((base || P.base).replace(/\/$/, '') + '/models', { headers: key ? { Authorization: 'Bearer ' + key } : {} });
   if (!res.ok) throw await httpError(res, provider);
   const d = await res.json();

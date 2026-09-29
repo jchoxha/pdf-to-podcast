@@ -41,7 +41,7 @@ export function renderSettings(root, { onChange } = {}) {
     h('div', { class: 'card' },
       h('h2', null, 'Script writer input budget'),
       h('p', { class: 'sub' }, 'How many tokens of material each AI call may receive. Larger selections are condensed into notes first. Lower this if a provider rejects requests as too large.'),
-      h('div', { class: 'grid3' }, Object.entries(LLM_PROVIDERS).filter(([, p]) => !p.hidden).map(([id, p]) => h('label', { class: 'field' }, h('span', null, p.label.split(' (')[0]),
+      h('div', { class: 'grid3' }, Object.entries(LLM_PROVIDERS).filter(([, p]) => !p.hidden && !p.manual).map(([id, p]) => h('label', { class: 'field' }, h('span', null, p.label.split(' (')[0]),
         h('input', { type: 'number', min: 2000, step: 1000, value: S.llm.maxInputTokens[id] || p.maxInputTokens, onchange: (e) => { S.llm.maxInputTokens[id] = +e.target.value; changed(); } }))))),
     h('div', { class: 'card' },
       h('h2', null, 'Kokoro (in-browser voices)'),
